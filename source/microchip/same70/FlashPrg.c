@@ -31,6 +31,8 @@
 
 #include "FlashOS.H"                          /* FlashOS Structures */
 
+#define __nop()           __asm volatile ("nop");
+
 typedef volatile unsigned long    vu32;
 typedef          unsigned long     u32;
 typedef          unsigned char     u8;
@@ -152,8 +154,6 @@ typedef struct {
 #define GPNVM_BIT8             8                 /* GPNVM bit8: TCM configuration  */
 
 
-#define __nop()                             __asm volatile ("nop")
-
 /* Peripheral Memory Map */
 
 /* ---- SAME7x -------------------------------------------------------------------*/
@@ -172,9 +172,7 @@ typedef struct {
 
 #define FLASH_PAGE_SIZE        512               /* Page size is 512 Byte for all devices */
 
-
-
-unsigned long base_adr;        /* Base Address  */
+#define FLASH_MEM
 
 
 /*
@@ -186,9 +184,6 @@ unsigned long base_adr;        /* Base Address  */
  */
 
 int Init (unsigned long adr, unsigned long clk, unsigned long fnc) {
-
-  /* store Flash Start address */
-  base_adr = adr;
 
   /* disable EEFC write protection */
   EEFC0->WPMR = 0x45464300;
@@ -324,7 +319,7 @@ int EraseSector (unsigned long adr) {
 
   /* select EEFC, calculate page */
     EEFCx =  EEFC0;
-    page  = (adr - (base_adr                   )) / FLASH_PAGE_SIZE;
+    page  = (adr - (0x400000                   )) / FLASH_PAGE_SIZE;
 
   /* FARG[1:0] Number of pages to be erased with EPA command */
   page = ((page & ~3UL) | 2);
@@ -353,33 +348,42 @@ int EraseSector (unsigned long adr) {
  *    Return Value:   0 - OK,  1 - Failed
  */
 #ifdef FLASH_MEM
-int ProgramPage (unsigned long adr, unsigned long sz, unsigned char *buf) {
-  u32           page;
-  u32          *Flash;
-  EEFC_TypeDef *EEFCx;
+int ProgramPage (unsigned long adr, unsigned long sz, unsigned char *buf) 
+{
+  const int pageCount = sz / FLASH_PAGE_SIZE;
+  for(int pg = 0; pg < pageCount; pg++)
+  {
+    const u32* __buf = (u32*)buf;
 
-  /* select EEFC, calculate page */
-    EEFCx =  EEFC0;
-    page  = (adr - (base_adr                   )) / FLASH_PAGE_SIZE;
+    const u32 page = (adr - 0x400000) / FLASH_PAGE_SIZE;
 
-  /* we always flash complete pages */
-  sz = FLASH_PAGE_SIZE;
+    /* set write pointer to Flash address */
+    u32 *Flash = (unsigned long *)adr;
 
-  /* set write pointer to Flash address */
-  Flash = (unsigned long *)adr;
+    /* copy data to write buffer */
+    for (int i = 0; i < (FLASH_PAGE_SIZE / 4); i++) 
+    {
+      Flash[i] = __buf[i];
+    }
 
-  /* copy data to write buffer */
-  for (sz = (sz + 3) & ~3; sz; sz -= 4, buf += 4) {
-    *Flash++ = *((unsigned long *)buf);
+    /* start programming command */
+    EEFC0->FCR = EEFC_FCR_FKEY | EEFC_FCR_FCMD_WP | (EEFC_FCR_FARG & (page << 8));
+    while (!(EEFC0->FSR & EEFC_FSR_FRDY)) __nop();
+
+    /* check for errors */
+    if (EEFC0->FSR & (EEFC_FSR_FLERR |EEFC_FSR_FCMDE | EEFC_FSR_FLOCKE))
+      return (1);
+
+    for(int i = 0; i < (FLASH_PAGE_SIZE / 4); i++)
+    {
+      if(Flash[i] != __buf[i])
+      {
+        return adr + (i * 4);
+      }
+    }
+    adr += FLASH_PAGE_SIZE;
+    buf += FLASH_PAGE_SIZE;
   }
-
-  /* start programming command */
-  EEFCx->FCR = EEFC_FCR_FKEY | EEFC_FCR_FCMD_WP | (EEFC_FCR_FARG & (page << 8));
-  while (!(EEFCx->FSR & EEFC_FSR_FRDY)) __nop();
-
-  /* check for errors */
-  if (EEFCx->FSR & (EEFC_FSR_FLERR |EEFC_FSR_FCMDE | EEFC_FSR_FLOCKE))
-    return (1);
 
   return (0);
 }
