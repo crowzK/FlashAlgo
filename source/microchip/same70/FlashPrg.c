@@ -173,7 +173,7 @@ typedef struct {
 #define FLASH_PAGE_SIZE        512               /* Page size is 512 Byte for all devices */
 
 #define FLASH_MEM
-
+ 
 
 /*
  *  Initialize Flash Programming Functions
@@ -292,8 +292,23 @@ int BlankCheck (unsigned long adr, unsigned long sz, unsigned char pat) {
  *    Return Value:   0 - OK,  1 - Failed
  */
 
+#define 	SAMV_SECTOR_SIZE   16384
 int EraseChip (void) {
 #ifdef FLASH_MEM
+  for(int sector = 0; sector < 128; sector++)
+  {
+    uint32_t pg = sector * 32;
+    for(int i = 0; i < 32; i ++)
+    {
+      /* start programming command */
+      EEFC0->FCR = EEFC_FCR_FKEY | EEFC_FCR_FCMD_CLB | (EEFC_FCR_FARG & ((pg + i) << 8));
+      while (!(EEFC0->FSR & EEFC_FSR_FRDY)) __nop();
+
+      /* check for errors */
+      if (EEFC0->FSR & (EEFC_FSR_FLERR |EEFC_FSR_FCMDE | EEFC_FSR_FLOCKE))
+        return (1);
+    }
+  }  
 
   /* erase all command
      memory covered by the Flash Programming Algorithm is erased */
@@ -322,7 +337,7 @@ int EraseSector (unsigned long adr) {
     page  = (adr - (0x400000                   )) / FLASH_PAGE_SIZE;
 
   /* FARG[1:0] Number of pages to be erased with EPA command */
-  page = ((page & ~3UL) | 2);
+  page = ((page & ~3UL) | 3);
 
   /* unlock page command */
   EEFCx->FCR = EEFC_FCR_FKEY | EEFC_FCR_FCMD_CLB | (EEFC_FCR_FARG & (page << 8));
@@ -383,6 +398,11 @@ int ProgramPage (unsigned long adr, unsigned long sz, unsigned char *buf)
     }
     adr += FLASH_PAGE_SIZE;
     buf += FLASH_PAGE_SIZE;
+
+    for(int i = 0; i < 100; i++)
+    {
+      __nop();
+    }
   }
 
   return (0);

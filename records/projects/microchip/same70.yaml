@@ -1,0 +1,15 @@
+common:
+    group_name:
+        - flash_driver
+    target:
+        - cortex-m7
+    includes:
+        - source
+    sources:
+        - source
+        - source/microchip/same70
+    macros:
+        - ATSAME7x_2048
+        - FLASH_MEM
+        - FLASH_DRV_VERS=0
+
